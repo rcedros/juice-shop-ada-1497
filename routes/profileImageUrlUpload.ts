@@ -18,25 +18,52 @@ export function profileImageUrlUpload () {
     if (req.body.imageUrl !== undefined) {
       const url = req.body.imageUrl
       if (url.match(/(.)*solve\/challenges\/server-side(.)*/) !== null) req.app.locals.abused_ssrf_bug = true
+      // Allowlist of trusted hosts from which to fetch profile images
+      const allowedHosts = [
+        'images.unsplash.com',
+        'i.imgur.com',
+        'cdn.pixabay.com'
+      ]
+      let parsedHost = ''
+      try {
+        const parsedUrl = new URL(url)
+        parsedHost = parsedUrl.hostname
+      } catch (e) {
+        // If URL parsing fails, treat as unsafe
+        next(new Error('Provided imageUrl is not a valid URL'))
+        return
+      }
       const loggedInUser = security.authenticatedUsers.get(req.cookies.token)
       if (loggedInUser) {
-        try {
-          const response = await fetch(url)
-          if (!response.ok || !response.body) {
-            throw new Error('url returned a non-OK status code or an empty body')
-          }
-          const ext = ['jpg', 'jpeg', 'png', 'svg', 'gif'].includes(url.split('.').slice(-1)[0].toLowerCase()) ? url.split('.').slice(-1)[0].toLowerCase() : 'jpg'
-          const fileStream = fs.createWriteStream(`frontend/dist/frontend/assets/public/images/uploads/${loggedInUser.data.id}.${ext}`, { flags: 'w' })
-          await finished(Readable.fromWeb(response.body as any).pipe(fileStream))
-          await UserModel.findByPk(loggedInUser.data.id).then(async (user: UserModel | null) => { return await user?.update({ profileImage: `/assets/public/images/uploads/${loggedInUser.data.id}.${ext}` }) }).catch((error: Error) => { next(error) })
-        } catch (error) {
+        if (!allowedHosts.includes(parsedHost)) {
+          // Unsafe host; do not fetch, fallback as in error case
           try {
             const user = await UserModel.findByPk(loggedInUser.data.id)
             await user?.update({ profileImage: url })
-            logger.warn(`Error retrieving user profile image: ${utils.getErrorMessage(error)}; using image link directly`)
+            logger.warn(`Blocked fetch for unsafe profile image host "${parsedHost}"; using image link directly`)
           } catch (error) {
             next(error)
             return
+          }
+        } else {
+          try {
+            const response = await fetch(url)
+            if (!response.ok || !response.body) {
+              throw new Error('url returned a non-OK status code or an empty body')
+            }
+            const ext = ['jpg', 'jpeg', 'png', 'svg', 'gif'].includes(url.split('.').slice(-1)[0].toLowerCase()) ? url.split('.').slice(-1)[0].toLowerCase() : 'jpg'
+            const fileStream = fs.createWriteStream(`frontend/dist/frontend/assets/public/images/uploads/${loggedInUser.data.id}.${ext}`, { flags: 'w' })
+            await finished(Readable.fromWeb(response.body as any).pipe(fileStream))
+            await UserModel.findByPk(loggedInUser.data.id).then(async (user: UserModel | null) => { return await user?.update({ profileImage: `/assets/public/images/uploads/${loggedInUser.data.id}.${ext}` }) }).catch((error: Error) => { next(error) })
+          } catch (error) {
+            try {
+              const user = await UserModel.findByPk(loggedInUser.data.id)
+              await user?.update({ profileImage: url })
+              logger.warn(`Error retrieving user profile image: ${utils.getErrorMessage(error)}; using image link directly`)
+            } catch (error) {
+              next(error)
+              return
+            }
           }
         }
       } else {
