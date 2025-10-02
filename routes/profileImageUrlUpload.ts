@@ -4,6 +4,7 @@
  */
 
 import fs from 'node:fs'
+import punycode from 'punycode'
 import { Readable } from 'node:stream'
 import { finished } from 'node:stream/promises'
 import { type Request, type Response, type NextFunction } from 'express'
@@ -28,7 +29,8 @@ export function profileImageUrlUpload () {
       let parsedUrl: URL
       try {
         parsedUrl = new URL(url)
-        parsedHost = parsedUrl.hostname.toLowerCase()
+        // Normalize hostname for SSRF defense (punycode & lowercase)
+        parsedHost = punycode.toASCII(parsedUrl.hostname).toLowerCase()
       } catch (e) {
         // If URL parsing fails, treat as unsafe
         next(new Error('Provided imageUrl is not a valid URL'))
@@ -47,7 +49,8 @@ export function profileImageUrlUpload () {
       const loggedInUser = security.authenticatedUsers.get(req.cookies.token)
       if (loggedInUser) {
         // Ensure host matches allowlist exactly (case-insensitive)
-        const matchedHost = allowedHosts.find(h => h.toLowerCase() === parsedHost)
+        // Normalize allowed hosts for comparison
+        const matchedHost = allowedHosts.find(h => punycode.toASCII(h).toLowerCase() === parsedHost)
         if (!matchedHost) {
           // Unsafe host; do not fetch, fallback as in error case
           try {
