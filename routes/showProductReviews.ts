@@ -33,7 +33,13 @@ export function showProductReviews () {
     // Measure how long the query takes, to check if there was a nosql dos attack
     const t0 = new Date().getTime()
 
-    db.reviewsCollection.find({ $where: 'this.product == ' + id }).then((reviews: Review[]) => {
+    // Use a safe field equality query unless the challenge is enabled
+    const query = !utils.isChallengeEnabled(challenges.noSqlCommandChallenge)
+      ? { product: id }
+      // For the challenge, intentionally use $where for exploitation
+      : { $where: 'this.product == ' + JSON.stringify(id) }
+
+    db.reviewsCollection.find(query).then((reviews: Review[]) => {
       const t1 = new Date().getTime()
       challengeUtils.solveIf(challenges.noSqlCommandChallenge, () => { return (t1 - t0) > 2000 })
       const user = security.authenticatedUsers.from(req)
