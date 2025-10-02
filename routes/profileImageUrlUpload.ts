@@ -25,17 +25,30 @@ export function profileImageUrlUpload () {
         'cdn.pixabay.com'
       ]
       let parsedHost = ''
+      let parsedUrl: URL
       try {
-        const parsedUrl = new URL(url)
-        parsedHost = parsedUrl.hostname
+        parsedUrl = new URL(url)
+        parsedHost = parsedUrl.hostname.toLowerCase()
       } catch (e) {
         // If URL parsing fails, treat as unsafe
         next(new Error('Provided imageUrl is not a valid URL'))
         return
       }
+      // Only allow http/https schemes
+      if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+        next(new Error('Protocol not allowed for imageUrl'))
+        return
+      }
+      // Disallow any URL with username/password
+      if (parsedUrl.username || parsedUrl.password) {
+        next(new Error('User credentials not allowed in imageUrl'))
+        return
+      }
       const loggedInUser = security.authenticatedUsers.get(req.cookies.token)
       if (loggedInUser) {
-        if (!allowedHosts.includes(parsedHost)) {
+        // Ensure host matches allowlist exactly (case-insensitive)
+        const matchedHost = allowedHosts.find(h => h.toLowerCase() === parsedHost)
+        if (!matchedHost) {
           // Unsafe host; do not fetch, fallback as in error case
           try {
             const user = await UserModel.findByPk(loggedInUser.data.id)
